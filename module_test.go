@@ -221,6 +221,60 @@ func Test_GetHostname(t *testing.T) {
 	}
 }
 
+func Test_GetPort(t *testing.T) {
+	app := &App{
+		PortRange: &PortRange{
+			Start: 1000,
+			End:   1001,
+		},
+		Nodes: map[string]Node{
+			"empty": {},
+			"port":  {Port: 3000},
+		},
+	}
+	if err := app.Provision(caddy.Context{}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := getPort("noconfig", &App{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint16(0); got != want {
+		t.Errorf("GetPort() = %v, want %v", got, want)
+	}
+
+	got, err = getPort("empty", app, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint16(1000); got != want {
+		t.Errorf("GetPort() = %v, want %v", got, want)
+	}
+
+	got, err = getPort("empty", app, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint16(1001); got != want {
+		t.Errorf("GetPort() = %v, want %v", got, want)
+	}
+
+	got, err = getPort("empty", app, 0)
+	if err == nil {
+		t.Errorf("GetPort() = Did not error on port exhaustion")
+	}
+
+	got, err = getPort("port", app, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := uint16(3000); got != want {
+		t.Errorf("GetPort() = %v, want %v", got, want)
+	}
+
+}
+
 func Test_GetStateDir(t *testing.T) {
 	const nodeName = "node"
 	configDir := must.Get(os.UserConfigDir())

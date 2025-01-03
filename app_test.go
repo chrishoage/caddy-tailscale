@@ -104,6 +104,29 @@ func Test_ParseApp(t *testing.T) {
 			wantErr: false,
 			authKey: "tskey-node",
 		},
+		{
+			name: "port_range set",
+			d: caddyfile.NewTestDispenser(`
+				tailscsale {
+					port_range {
+						start 1000
+						end 2000
+					}
+				}`),
+			want:    `{"port_range":{"start": 1000,"end":2000}}`,
+			authKey: "",
+		},
+		{
+			name: "port_range invalid",
+			d: caddyfile.NewTestDispenser(`
+				tailscsale {
+					port_range {
+						start 2000
+						end 1000
+					}
+				}`),
+			wantErr: true,
+		},
 	}
 
 	for _, testcase := range tests {

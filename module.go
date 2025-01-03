@@ -176,6 +176,10 @@ func getNode(ctx caddy.Context, name string) (*tailscaleNode, error) {
 			return nil, err
 		}
 
+		if s.Port, err = getPort(name, app, s.Port); err != nil {
+			return nil, err
+		}
+
 		if s.Dir, err = getStateDir(name, app); err != nil {
 			return nil, err
 		}
@@ -247,6 +251,37 @@ func getHostname(name string, app *App) (string, error) {
 	}
 
 	return name, nil
+}
+
+func getNextPortRange(app *App, port uint16) (uint16, error) {
+	if app.PortRange == nil {
+		return port, nil
+	}
+
+	nextPort := app.PortRange.Start + app.PortRange.count
+	app.PortRange.count++
+
+	if nextPort > app.PortRange.End {
+		return 0, fmt.Errorf("Port range exhausted")
+	}
+
+	return nextPort, nil
+}
+
+func getPort(name string, app *App, port uint16) (uint16, error) {
+	// If a port has been configured already use it
+	if port != 0 {
+		return port, nil
+	}
+
+	if node, ok := app.Nodes[name]; ok {
+		if node.Port == 0 {
+			return getNextPortRange(app, port)
+		}
+		return node.Port, nil
+	}
+
+	return getNextPortRange(app, port)
 }
 
 func getStateDir(name string, app *App) (string, error) {

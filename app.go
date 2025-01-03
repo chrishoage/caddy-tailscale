@@ -38,6 +38,8 @@ type App struct {
 	// Each node will have a subdirectory under this parent directory for its state.
 	StateDir string `json:"state_dir,omitempty" caddy:"namespace=tailscale.state_dir"`
 
+	PortRange *PortRange `json:"port_range,omitempty" caddy:"namespace=tailscale.port_range"`
+
 	// WebUI specifies whether Tailscale nodes should run the Web UI for remote management.
 	WebUI bool `json:"webui,omitempty" caddy:"namespace=tailscale.webui"`
 
@@ -45,6 +47,12 @@ type App struct {
 	Nodes map[string]Node `json:"nodes,omitempty" caddy:"namespace=tailscale"`
 
 	logger *zap.Logger
+}
+
+type PortRange struct {
+	Start uint16 `json:"start,omitempty"`
+	End   uint16 `json:"end,omitempty"`
+	count uint16
 }
 
 // Node is a Tailscale node configuration.
@@ -65,6 +73,8 @@ type Node struct {
 
 	// Hostname is the hostname to use when registering the node.
 	Hostname string `json:"hostname,omitempty" caddy:"namespace=tailscale.hostname"`
+
+	Port uint16 `json:"port,omitempty" caddy:"namespace=tailscale.port"`
 
 	// StateDir specifies the state directory for the node.
 	StateDir string `json:"state_dir,omitempty" caddy:"namespace=tailscale.state_dir"`
@@ -130,6 +140,45 @@ func parseAppConfig(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, d.ArgErr()
 			}
 			app.StateDir = d.Val()
+		case "port_range":
+			segment := d.NewFromNextSegment()
+
+			if !segment.Next() {
+				return nil, d.ArgErr()
+			}
+
+			app.PortRange = &PortRange{}
+
+			for nesting := segment.Nesting(); segment.NextBlock(nesting); {
+				val := segment.Val()
+				switch val {
+				case "start":
+					if !segment.NextArg() {
+						return nil, segment.ArgErr()
+					}
+					v, err := strconv.ParseUint(segment.Val(), 10, 16)
+					if err != nil {
+						return nil, segment.WrapErr(err)
+					}
+					app.PortRange.Start = uint16(v)
+				case "end":
+					if !segment.NextArg() {
+						return nil, segment.ArgErr()
+					}
+					v, err := strconv.ParseUint(segment.Val(), 10, 16)
+					if err != nil {
+						return nil, segment.WrapErr(err)
+					}
+					app.PortRange.End = uint16(v)
+				default:
+					return nil, segment.Errf("unrecognized subdirective: %s", segment.Val())
+				}
+			}
+
+			if app.PortRange.End < app.PortRange.Start {
+				return nil, d.SyntaxErr("port range start must be less than end")
+			}
+
 		case "webui":
 			if d.NextArg() {
 				v, err := strconv.ParseBool(d.Val())
@@ -190,6 +239,17 @@ func parseNodeConfig(d *caddyfile.Dispenser) (Node, error) {
 			} else {
 				node.Ephemeral = opt.NewBool(true)
 			}
+		case "port":
+			if segment.NextArg() {
+				v, err := strconv.ParseUint(segment.Val(), 10, 16)
+				if err != nil {
+					return node, segment.WrapErr(err)
+				}
+				node.Port = uint16(v)
+			} else {
+				node.Port = 0
+			}
+
 		case "hostname":
 			if !segment.NextArg() {
 				return node, segment.ArgErr()

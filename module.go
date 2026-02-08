@@ -29,6 +29,7 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/hostinfo"
 	"tailscale.com/tsnet"
+	"tailscale.com/types/views"
 )
 
 func init() {
@@ -43,6 +44,43 @@ func init() {
 	// rather than just always connecting to the local machine's tailscaled.
 	tscert.TailscaledTransport = &tsnetMuxTransport{}
 	hostinfo.SetApp("caddy")
+}
+
+// applyStaticEndpoints applies static endpoints from TS_CADDY_HOST_IP environment variable
+// to the given node. The environment variable can contain a comma-separated list of IP addresses.
+func applyStaticEndpoints(node *tailscaleNode, logger *zap.Logger) {
+	hostIP := os.Getenv("TS_CADDY_HOST_IP")
+	if hostIP == "" {
+		return
+	}
+
+	// Parse comma-separated list of IPs
+	ipStrs := strings.Split(hostIP, ",")
+	var addrPorts []netip.AddrPort
+
+	for _, ipStr := range ipStrs {
+		ipStr = strings.TrimSpace(ipStr)
+		if ipStr == "" {
+			continue
+		}
+
+		addr, err := netip.ParseAddr(ipStr)
+		if err != nil {
+			logger.Warn("invalid IP in TS_CADDY_HOST_IP, skipping",
+				zap.String("ip", ipStr),
+				zap.Error(err))
+			continue
+		}
+
+		addrPorts = append(addrPorts, netip.AddrPortFrom(addr, node.Port))
+	}
+
+	if len(addrPorts) > 0 {
+		logger.Debug("applying static endpoints from TS_CADDY_HOST_IP",
+			zap.Int("count", len(addrPorts)),
+			zap.String("endpoints", hostIP))
+		node.Sys().MagicSock.Get().SetStaticEndpoints(views.SliceOf(addrPorts))
+	}
 }
 
 func getTCPListener(c context.Context, network string, host string, portRange string, portOffset uint, _ net.ListenConfig) (any, error) {
@@ -88,6 +126,13 @@ func getTCPListener(c context.Context, network string, host string, portRange st
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Get app for logger access
+	appIface, err := ctx.App("tailscale")
+	if err == nil {
+		app := appIface.(*App)
+		applyStaticEndpoints(node, app.logger)
 	}
 
 	return &tailscaleFakeCloseListener{
@@ -233,6 +278,13 @@ func getUDPListener(c context.Context, network string, host string, portRange st
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Get app for logger access
+	appIface, err := ctx.App("tailscale")
+	if err == nil {
+		app := appIface.(*App)
+		applyStaticEndpoints(node, app.logger)
 	}
 
 	return &tailscaleFakeClosePacketConn{
